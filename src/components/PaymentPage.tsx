@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { createCheckoutSession } from "@/lib/polar";
 
@@ -7,23 +7,26 @@ interface PaymentPageProps {
 }
 
 interface PricingTier {
-  id: string;
+  _id?: string;
+  polarProductId: string;
   name: string;
   description: string;
   price: number;
-  period: string;
+  interval: string;
+  tier: string;
   features: string[];
   highlighted?: boolean;
-  productId?: string;
+  active?: boolean;
 }
 
-const pricingTiers: PricingTier[] = [
+const defaultPricingTiers: PricingTier[] = [
   {
-    id: "free",
+    polarProductId: "free",
     name: "Free",
     description: "Perfect for getting started",
     price: 0,
-    period: "forever",
+    interval: "forever",
+    tier: "free",
     features: [
       "Up to 3 projects",
       "Basic analytics",
@@ -32,13 +35,13 @@ const pricingTiers: PricingTier[] = [
     ],
   },
   {
-    id: "pro",
+    polarProductId: "pro_monthly",
     name: "Pro",
     description: "Best for growing teams",
     price: 9.99,
-    period: "month",
+    interval: "month",
+    tier: "pro",
     highlighted: true,
-    productId: "pro_monthly",
     features: [
       "Unlimited projects",
       "Advanced analytics",
@@ -50,12 +53,12 @@ const pricingTiers: PricingTier[] = [
     ],
   },
   {
-    id: "enterprise",
+    polarProductId: "enterprise_monthly",
     name: "Enterprise",
     description: "For large organizations",
     price: 29.99,
-    period: "month",
-    productId: "enterprise_monthly",
+    interval: "month",
+    tier: "enterprise",
     features: [
       "Everything in Pro",
       "Dedicated account manager",
@@ -71,31 +74,69 @@ const pricingTiers: PricingTier[] = [
 
 export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
   const [isLoading, setIsLoading] = useState<string | null>(null);
+  const [pricingTiers, setPricingTiers] = useState<PricingTier[]>(defaultPricingTiers);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch products from API
+    const fetchProducts = async () => {
+      try {
+        console.log('🔄 Fetching products from /api/products...');
+        const response = await fetch('/api/products');
+        console.log('📡 Response status:', response.status);
+
+        if (response.ok) {
+          const products = await response.json();
+          console.log('📦 Products received:', products);
+
+          if (products.length > 0) {
+            setPricingTiers(products);
+            console.log('✅ Products loaded from database:', products.length);
+          }
+        } else {
+          console.warn('⚠️ Failed to fetch products, using defaults. Status:', response.status);
+          setFetchError('Using default pricing (database not connected)');
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch products:', error);
+        setFetchError('Using default pricing (server not running)');
+      }
+    };
+
+    fetchProducts();
+  }, []);
 
   const handlePayment = async (tier: PricingTier) => {
-    if (tier.id === "free") {
+    console.log('💳 Payment button clicked for tier:', tier);
+
+    if (tier.tier === "free") {
       alert("Free tier is already active!");
       return;
     }
 
-    setIsLoading(tier.id);
+    setIsLoading(tier.polarProductId);
     try {
+      console.log('🔄 Creating checkout session with product_id:', tier.polarProductId);
+
       const checkoutSession = await createCheckoutSession({
-        product_id: tier.productId || import.meta.env.VITE_POLAR_PRODUCT_ID,
-        success_url: `${window.location.origin}/confirmation?status=success&plan=${tier.id}`,
+        product_id: tier.polarProductId || import.meta.env.VITE_POLAR_PRODUCT_ID,
+        success_url: `${window.location.origin}/confirmation?status=success&plan=${tier.tier}`,
         cancel_url: `${window.location.origin}/confirmation?status=failed`,
       });
 
+      console.log('✅ Checkout session created:', checkoutSession);
+
       if (checkoutSession.url) {
         onPaymentInitiated();
+        console.log('🔗 Redirecting to:', checkoutSession.url);
         window.location.href = checkoutSession.url;
       } else {
         throw new Error("No checkout URL received");
       }
     } catch (error) {
-      console.error("Payment failed:", error);
+      console.error("❌ Payment failed:", error);
       setIsLoading(null);
-      alert("Payment initialization failed. Please try again.");
+      alert(`Payment initialization failed: ${error instanceof Error ? error.message : 'Please try again.'}`);
     }
   };
 
@@ -123,7 +164,7 @@ export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
         <div className="grid md:grid-cols-3 gap-8 max-w-7xl mx-auto">
           {pricingTiers.map((tier, index) => (
             <div
-              key={tier.id}
+              key={tier._id || tier.polarProductId}
               className={`pricing-card fade-in-up ${
                 tier.highlighted ? "pricing-card-highlighted" : ""
               }`}
@@ -147,7 +188,7 @@ export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
                   </span>
                   {tier.price > 0 && (
                     <span className="text-gray-700 ml-2 text-lg">
-                      /{tier.period}
+                      /{tier.interval}
                     </span>
                   )}
                 </div>
@@ -180,18 +221,18 @@ export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
                   className={`w-full text-lg py-6 font-semibold ${
                     tier.highlighted
                       ? "gradient-button text-white"
-                      : tier.id === "free"
+                      : tier.tier === "free"
                       ? "bg-gray-200 hover:bg-gray-300 text-gray-800"
                       : "gradient-button text-white"
                   }`}
-                  disabled={isLoading === tier.id}
+                  disabled={isLoading === tier.polarProductId}
                 >
-                  {isLoading === tier.id ? (
+                  {isLoading === tier.polarProductId ? (
                     <div className="flex items-center justify-center">
                       <div className="loading-spinner rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
                       Processing...
                     </div>
-                  ) : tier.id === "free" ? (
+                  ) : tier.tier === "free" ? (
                     "Current Plan"
                   ) : (
                     `Get Started with ${tier.name}`

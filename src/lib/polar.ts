@@ -1,9 +1,5 @@
-import { Polar } from '@polar-sh/sdk';
-
-// Initialize Polar SDK
-export const polar = new Polar({
-  accessToken: import.meta.env.VITE_POLAR_ACCESS_TOKEN,
-});
+// Checkout helper functions - calls backend API instead of Polar directly
+// This keeps the access token secure on the server
 
 export interface CheckoutSessionData {
   product_id: string;
@@ -13,26 +9,40 @@ export interface CheckoutSessionData {
 
 export const createCheckoutSession = async (data: CheckoutSessionData) => {
   try {
-    const response = await polar.checkouts.create({
-      products: [data.product_id],
-      successUrl: data.success_url,
-      ...(data.cancel_url && { cancelUrl: data.cancel_url }),
+    console.log('🔄 Calling backend to create checkout...');
+
+    const response = await fetch('/api/checkout/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
     });
-    
-    return response;
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to create checkout');
+    }
+
+    const result = await response.json();
+    console.log('✅ Checkout created via backend:', result.id);
+
+    return result;
   } catch (error) {
-    console.error('Error creating checkout session:', error);
+    console.error('❌ Error creating checkout session:', error);
     throw error;
   }
 };
 
 export const getCheckoutSession = async (sessionId: string) => {
   try {
-    const response = await polar.checkouts.get({
-      id: sessionId,
-    });
-    
-    return response;
+    const response = await fetch(`/api/checkout/${sessionId}`);
+
+    if (!response.ok) {
+      throw new Error('Failed to get checkout session');
+    }
+
+    return await response.json();
   } catch (error) {
     console.error('Error getting checkout session:', error);
     throw error;
