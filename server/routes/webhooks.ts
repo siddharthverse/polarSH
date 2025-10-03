@@ -12,7 +12,6 @@ router.post(
   express.raw({ type: 'application/json' }),
   async (req: Request, res: Response) => {
     try {
-      const rawBody = req.body.toString('utf8');
       const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
 
       if (!webhookSecret) {
@@ -20,19 +19,16 @@ router.post(
         return res.status(500).json({ error: 'Server configuration error' });
       }
 
-      // TEMPORARY: Skip verification for debugging
-      console.log('⚠️  WARNING: Webhook signature verification is DISABLED for debugging');
-
+      // Verify webhook signature using Polar's SDK
+      // req.body is a Buffer when using express.raw()
       let event;
       try {
-        // Try to verify, but continue even if it fails
-        event = verifyPolarWebhook(rawBody, req.headers, webhookSecret);
+        event = verifyPolarWebhook(req.body, req.headers, webhookSecret);
         console.log('✅ Webhook verified:', event.type);
+        console.log('📦 Full event payload:', JSON.stringify(event, null, 2));
       } catch (err) {
-        console.warn('⚠️  Signature verification failed, but continuing anyway:', err);
-        // Parse the body manually since verification failed
-        event = JSON.parse(rawBody);
-        console.log('📦 Webhook event type:', event.type);
+        console.error('Webhook verification failed:', err);
+        return res.status(401).json({ error: 'Invalid signature' });
       }
 
       // Handle different webhook events
@@ -80,12 +76,12 @@ async function handleCheckoutCreated(data: any) {
   console.log('📝 Checkout created:', data.id);
 
   // Create or find user
-  let user = await User.findOne({ email: data.customer_email });
-  if (!user && data.customer_email) {
+  let user = await User.findOne({ email: data.customerEmail });
+  if (!user && data.customerEmail) {
     user = new User({
-      email: data.customer_email,
-      name: data.customer_name,
-      polarCustomerId: data.customer_id,
+      email: data.customerEmail,
+      name: data.customerName,
+      polarCustomerId: data.customerId,
     });
     await user.save();
     console.log('✅ New user created:', user.email);
@@ -93,9 +89,9 @@ async function handleCheckoutCreated(data: any) {
 
   const payment = new Payment({
     checkoutId: data.id,
-    customerId: data.customer_id,
-    customerEmail: data.customer_email,
-    productId: data.product_id,
+    customerId: data.customerId,
+    customerEmail: data.customerEmail,
+    productId: data.productId,
     productName: data.product?.name,
     amount: data.amount || 0,
     currency: data.currency || 'USD',
@@ -103,7 +99,7 @@ async function handleCheckoutCreated(data: any) {
     eventType: 'checkout.created',
     metadata: {
       checkout_url: data.url,
-      expires_at: data.expires_at,
+      expires_at: data.expiresAt,
     },
   });
 
@@ -125,8 +121,8 @@ async function handleCheckoutUpdated(data: any) {
 
   if (payment) {
     payment.status = data.status === 'confirmed' ? 'completed' : payment.status;
-    payment.customerEmail = data.customer_email || payment.customerEmail;
-    payment.customerId = data.customer_id || payment.customerId;
+    payment.customerEmail = data.customerEmail || payment.customerEmail;
+    payment.customerId = data.customerId || payment.customerId;
     payment.metadata = {
       ...payment.metadata,
       updated_at: new Date(),
@@ -144,16 +140,16 @@ async function handleOrderCreated(data: any) {
   console.log('🛒 Order created:', data.id);
 
   // Find the related payment by checkout ID or create a new one
-  let payment = await Payment.findOne({ checkoutId: data.checkout_id });
+  let payment = await Payment.findOne({ checkoutId: data.checkoutId });
 
   if (!payment) {
     payment = new Payment({
-      checkoutId: data.checkout_id || data.id,
-      customerId: data.user_id,
-      customerEmail: data.user?.email,
-      productId: data.product_id,
+      checkoutId: data.checkoutId || data.id,
+      customerId: data.customerId,
+      customerEmail: data.customer?.email,
+      productId: data.productId,
       productName: data.product?.name,
-      amount: data.amount,
+      amount: data.totalAmount,
       currency: data.currency,
       status: 'completed',
       eventType: 'order.created',
@@ -173,9 +169,9 @@ async function handleOrderCreated(data: any) {
   }
 
   // Update user subscription status if applicable
-  const user = await User.findOne({ email: data.user?.email || payment.customerEmail });
+  const user = await User.findOne({ email: data.customer?.email || payment.customerEmail });
   if (user) {
-    const product = await Product.findOne({ polarProductId: data.product_id });
+    const product = await Product.findOne({ polarProductId: data.productId });
     if (product) {
       user.subscriptionStatus = product.tier;
       if (!user.payments.includes(payment._id)) {
@@ -193,10 +189,10 @@ async function handleSubscriptionCreated(data: any) {
   console.log('🔔 Subscription created:', data.id);
 
   const payment = new Payment({
-    checkoutId: data.checkout_id || data.id,
-    customerId: data.user_id,
-    customerEmail: data.user?.email,
-    productId: data.product_id,
+    checkoutId: data.checkoutId || data.id,
+    customerId: data.customerId,
+    customerEmail: data.customer?.email,
+    productId: data.productId,
     productName: data.product?.name,
     amount: data.amount || 0,
     currency: data.currency || 'USD',
@@ -205,20 +201,20 @@ async function handleSubscriptionCreated(data: any) {
     metadata: {
       subscription_id: data.id,
       status: data.status,
-      current_period_end: data.current_period_end,
+      current_period_end: data.currentPeriodEnd,
     },
   });
 
   await payment.save();
 
   // Update user with subscription info
-  const user = await User.findOne({ email: data.user?.email });
+  const user = await User.findOne({ email: data.customer?.email });
   if (user) {
-    const product = await Product.findOne({ polarProductId: data.product_id });
+    const product = await Product.findOne({ polarProductId: data.productId });
     if (product) {
       user.subscriptionStatus = product.tier;
       user.subscriptionId = data.id;
-      user.subscriptionEndsAt = data.current_period_end ? new Date(data.current_period_end) : undefined;
+      user.subscriptionEndsAt = data.currentPeriodEnd ? new Date(data.currentPeriodEnd) : undefined;
       if (!user.payments.includes(payment._id)) {
         user.payments.push(payment._id);
       }
@@ -233,8 +229,18 @@ async function handleSubscriptionCreated(data: any) {
 async function handleSubscriptionUpdated(data: any) {
   console.log('🔄 Subscription updated:', data.id);
 
-  // You might want to create a separate Subscription model for this
-  // For now, we'll just log it
+  // Update user subscription info
+  const user = await User.findOne({ subscriptionId: data.id });
+  if (user) {
+    const product = await Product.findOne({ polarProductId: data.productId });
+    if (product) {
+      user.subscriptionStatus = product.tier;
+      user.subscriptionEndsAt = data.currentPeriodEnd ? new Date(data.currentPeriodEnd) : undefined;
+      await user.save();
+      console.log(`✅ User ${user.email} subscription updated (${data.status})`);
+    }
+  }
+
   console.log('Subscription status:', data.status);
 }
 
