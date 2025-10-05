@@ -24,19 +24,34 @@ function getPolarClient(): Polar {
 // Create checkout session
 router.post('/create', async (req: Request, res: Response) => {
   try {
-    const { product_id, success_url, cancel_url } = req.body;
+    const { product_id, success_url, cancel_url, customer_email } = req.body;
 
     if (!product_id) {
       return res.status(400).json({ error: 'product_id is required' });
     }
 
     console.log('🔄 Creating checkout for product:', product_id);
+    if (customer_email) {
+      console.log('👤 Customer email:', customer_email);
+    }
 
     const polar = getPolarClient();
-    const checkoutSession = await polar.checkouts.create({
+
+    // Build checkout options
+    const checkoutOptions: any = {
       products: [product_id], // Must be an array of product IDs
       successUrl: success_url || process.env.POLAR_SUCCESS_URL || 'http://localhost:5173/confirmation?status=success',
-    });
+    };
+
+    // Add externalCustomerId if customer_email is provided
+    // This links the Polar customer to your user system
+    if (customer_email) {
+      checkoutOptions.externalCustomerId = customer_email;
+      checkoutOptions.customerEmail = customer_email;
+      console.log('🔗 Linking checkout to external customer ID:', customer_email);
+    }
+
+    const checkoutSession = await polar.checkouts.create(checkoutOptions);
 
     console.log('✅ Checkout created:', checkoutSession.id);
 

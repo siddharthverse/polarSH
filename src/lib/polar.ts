@@ -5,6 +5,7 @@ export interface CheckoutSessionData {
   product_id: string;
   success_url: string;
   cancel_url?: string;
+  customer_email?: string; // Optional: Pass user's email to link to your system
 }
 
 export const createCheckoutSession = async (data: CheckoutSessionData) => {

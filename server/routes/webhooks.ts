@@ -57,8 +57,24 @@ router.post(
           await handleSubscriptionCanceled(event.data);
           break;
 
+        case 'order.paid':
+          await handleOrderPaid(event.data);
+          break;
+
+        case 'customer.created':
+          await handleCustomerCreated(event.data);
+          break;
+
+        case 'customer.updated':
+          await handleCustomerUpdated(event.data);
+          break;
+
+        case 'customer.state_changed':
+          await handleCustomerStateChanged(event.data);
+          break;
+
         default:
-          console.log(`Unhandled event type: ${event.type}`);
+          console.log(`ℹ️ Unhandled event type: ${event.type}`);
       }
 
       // Acknowledge receipt
@@ -75,22 +91,29 @@ router.post(
 async function handleCheckoutCreated(data: any) {
   console.log('📝 Checkout created:', data.id);
 
-  // Create or find user
-  let user = await User.findOne({ email: data.customerEmail });
-  if (!user && data.customerEmail) {
+  // Find or create user using externalCustomerId (most reliable) or email
+  const userIdentifier = data.externalCustomerId || data.customerEmail;
+  let user = await User.findOne({ email: userIdentifier });
+
+  if (!user && userIdentifier) {
     user = new User({
-      email: data.customerEmail,
+      email: userIdentifier,
       name: data.customerName,
       polarCustomerId: data.customerId,
     });
     await user.save();
     console.log('✅ New user created:', user.email);
+  } else if (user && data.customerId) {
+    // Update polarCustomerId if we have it
+    user.polarCustomerId = data.customerId;
+    await user.save();
+    console.log('✅ User updated with Polar customer ID:', data.customerId);
   }
 
   const payment = new Payment({
     checkoutId: data.id,
     customerId: data.customerId,
-    customerEmail: data.customerEmail,
+    customerEmail: data.customerEmail || userIdentifier,
     productId: data.productId,
     productName: data.product?.name,
     amount: data.amount || 0,
@@ -100,6 +123,7 @@ async function handleCheckoutCreated(data: any) {
     metadata: {
       checkout_url: data.url,
       expires_at: data.expiresAt,
+      external_customer_id: data.externalCustomerId,
     },
   });
 
@@ -111,7 +135,7 @@ async function handleCheckoutCreated(data: any) {
     await user.save();
   }
 
-  console.log('✅ Payment record created');
+  console.log('✅ Payment record created for user:', user?.email);
 }
 
 async function handleCheckoutUpdated(data: any) {
@@ -155,6 +179,7 @@ async function handleOrderCreated(data: any) {
       eventType: 'order.created',
       metadata: {
         order_id: data.id,
+        external_customer_id: data.customer?.externalId,
       },
     });
     await payment.save();
@@ -164,22 +189,28 @@ async function handleOrderCreated(data: any) {
       ...payment.metadata,
       order_id: data.id,
       order_created_at: new Date(),
+      external_customer_id: data.customer?.externalId,
     };
     await payment.save();
   }
 
-  // Update user subscription status if applicable
-  const user = await User.findOne({ email: data.customer?.email || payment.customerEmail });
+  // Find user by externalId (your system's user ID) or email
+  const userIdentifier = data.customer?.externalId || data.customer?.email || payment.customerEmail;
+  const user = await User.findOne({ email: userIdentifier });
+
   if (user) {
     const product = await Product.findOne({ polarProductId: data.productId });
     if (product) {
       user.subscriptionStatus = product.tier;
+      user.polarCustomerId = data.customerId;
       if (!user.payments.includes(payment._id)) {
         user.payments.push(payment._id);
       }
       await user.save();
       console.log(`✅ User ${user.email} upgraded to ${product.tier}`);
     }
+  } else {
+    console.warn(`⚠️ User not found for identifier: ${userIdentifier}`);
   }
 
   console.log('✅ Order processed and payment completed');
@@ -202,18 +233,22 @@ async function handleSubscriptionCreated(data: any) {
       subscription_id: data.id,
       status: data.status,
       current_period_end: data.currentPeriodEnd,
+      external_customer_id: data.customer?.externalId,
     },
   });
 
   await payment.save();
 
-  // Update user with subscription info
-  const user = await User.findOne({ email: data.customer?.email });
+  // Find user by externalId or email
+  const userIdentifier = data.customer?.externalId || data.customer?.email;
+  const user = await User.findOne({ email: userIdentifier });
+
   if (user) {
     const product = await Product.findOne({ polarProductId: data.productId });
     if (product) {
       user.subscriptionStatus = product.tier;
       user.subscriptionId = data.id;
+      user.polarCustomerId = data.customerId;
       user.subscriptionEndsAt = data.currentPeriodEnd ? new Date(data.currentPeriodEnd) : undefined;
       if (!user.payments.includes(payment._id)) {
         user.payments.push(payment._id);
@@ -221,6 +256,8 @@ async function handleSubscriptionCreated(data: any) {
       await user.save();
       console.log(`✅ User ${user.email} subscribed to ${product.tier}`);
     }
+  } else {
+    console.warn(`⚠️ User not found for identifier: ${userIdentifier}`);
   }
 
   console.log('✅ Subscription payment recorded');
@@ -271,6 +308,98 @@ async function handleSubscriptionCanceled(data: any) {
   }
 
   console.log('✅ Subscription cancellation recorded');
+}
+
+async function handleOrderPaid(data: any) {
+  console.log('💰 Order paid:', data.id);
+
+  // Update payment status to paid
+  let payment = await Payment.findOne({ 'metadata.order_id': data.id });
+
+  if (payment) {
+    payment.status = 'completed';
+    payment.metadata = {
+      ...payment.metadata,
+      paid_at: new Date(),
+      paid: true,
+    };
+    await payment.save();
+    console.log('✅ Payment marked as paid');
+  }
+
+  // Update user if needed
+  const userIdentifier = data.customer?.externalId || data.customer?.email;
+  const user = await User.findOne({ email: userIdentifier });
+
+  if (user) {
+    const product = await Product.findOne({ polarProductId: data.productId });
+    if (product && user.subscriptionStatus !== product.tier) {
+      user.subscriptionStatus = product.tier;
+      user.polarCustomerId = data.customerId;
+      await user.save();
+      console.log(`✅ User ${user.email} upgraded to ${product.tier}`);
+    }
+  }
+
+  console.log('✅ Order payment processed');
+}
+
+async function handleCustomerCreated(data: any) {
+  console.log('👤 Customer created:', data.id);
+
+  const userIdentifier = data.externalId || data.email;
+  let user = await User.findOne({ email: userIdentifier });
+
+  if (!user && userIdentifier) {
+    user = new User({
+      email: userIdentifier,
+      name: data.name,
+      polarCustomerId: data.id,
+    });
+    await user.save();
+    console.log('✅ New user created from customer webhook:', user.email);
+  } else if (user && !user.polarCustomerId) {
+    user.polarCustomerId = data.id;
+    await user.save();
+    console.log('✅ User updated with Polar customer ID:', data.id);
+  }
+
+  console.log('✅ Customer creation handled');
+}
+
+async function handleCustomerUpdated(data: any) {
+  console.log('🔄 Customer updated:', data.id);
+
+  const user = await User.findOne({ polarCustomerId: data.id });
+
+  if (user) {
+    // Update user details if changed
+    if (data.name && data.name !== user.name) {
+      user.name = data.name;
+    }
+    if (data.email && data.email !== user.email) {
+      user.email = data.email;
+    }
+    await user.save();
+    console.log('✅ User updated from customer webhook:', user.email);
+  } else {
+    console.log('ℹ️ No user found for customer ID:', data.id);
+  }
+
+  console.log('✅ Customer update handled');
+}
+
+async function handleCustomerStateChanged(data: any) {
+  console.log('🔄 Customer state changed:', data.id);
+
+  const user = await User.findOne({ polarCustomerId: data.id });
+
+  if (user) {
+    console.log(`ℹ️ Customer ${user.email} state changed`);
+    // You can add logic here based on customer state if needed
+  }
+
+  console.log('✅ Customer state change handled');
 }
 
 export default router;
