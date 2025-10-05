@@ -6,6 +6,8 @@ export interface CheckoutSessionData {
   success_url: string;
   cancel_url?: string;
   customer_email?: string; // Optional: Pass user's email to link to your system
+  app_name?: string; // App to feature (Firefox, Firefox Focus, Safari)
+  feature_date?: string; // Date when app will be featured
 }
 
 export const createCheckoutSession = async (data: CheckoutSessionData) => {

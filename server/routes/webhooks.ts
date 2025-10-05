@@ -120,6 +120,8 @@ async function handleCheckoutCreated(data: any) {
     currency: data.currency || 'USD',
     status: 'pending',
     eventType: 'checkout.created',
+    appName: data.metadata?.app_name, // Extract from checkout metadata
+    featureDate: data.metadata?.feature_date ? new Date(data.metadata.feature_date) : undefined,
     metadata: {
       checkout_url: data.url,
       expires_at: data.expiresAt,
@@ -128,6 +130,10 @@ async function handleCheckoutCreated(data: any) {
   });
 
   await payment.save();
+
+  if (payment.appName && payment.featureDate) {
+    console.log(`📱 Payment for ${payment.appName} to be featured on ${payment.featureDate.toISOString().split('T')[0]}`);
+  }
 
   // Link payment to user
   if (user) {

@@ -10,6 +10,8 @@ export interface IPayment extends Document {
   currency: string;
   status: 'pending' | 'completed' | 'failed' | 'refunded';
   eventType: string;
+  appName?: string; // App to feature (Firefox, Firefox Focus, Safari)
+  featureDate?: Date; // Date when app will be featured
   metadata?: Record<string, any>;
   createdAt: Date;
   updatedAt: Date;
@@ -54,6 +56,15 @@ const PaymentSchema: Schema = new Schema(
     eventType: {
       type: String,
       required: true,
+    },
+    appName: {
+      type: String,
+      enum: ['Firefox', 'Firefox Focus', 'Safari'],
+      index: true,
+    },
+    featureDate: {
+      type: Date,
+      index: true,
     },
     metadata: {
       type: Schema.Types.Mixed,

@@ -76,6 +76,8 @@ export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [pricingTiers, setPricingTiers] = useState<PricingTier[]>(defaultPricingTiers);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [selectedApp, setSelectedApp] = useState<string>("Firefox");
+  const [featureDate, setFeatureDate] = useState<string>("");
 
   useEffect(() => {
     // Fetch products from API
@@ -114,14 +116,28 @@ export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
       return;
     }
 
+    if (!selectedApp) {
+      alert("Please select an app");
+      return;
+    }
+
+    if (!featureDate) {
+      alert("Please select a feature date");
+      return;
+    }
+
     setIsLoading(tier.polarProductId);
     try {
       console.log('🔄 Creating checkout session with product_id:', tier.polarProductId);
+      console.log('📱 Selected app:', selectedApp);
+      console.log('📅 Feature date:', featureDate);
 
       const checkoutSession = await createCheckoutSession({
         product_id: tier.polarProductId || import.meta.env.VITE_POLAR_PRODUCT_ID,
         success_url: `${window.location.origin}/confirmation?status=success&plan=${tier.tier}`,
         cancel_url: `${window.location.origin}/confirmation?status=failed`,
+        app_name: selectedApp,
+        feature_date: featureDate,
       });
 
       console.log('✅ Checkout session created:', checkoutSession);
@@ -158,6 +174,43 @@ export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
             Select the perfect plan for your needs. Upgrade or downgrade at any
             time with no hidden fees.
           </p>
+
+          {/* App Selection and Feature Date */}
+          <div className="mt-8 max-w-2xl mx-auto bg-white/10 backdrop-blur-sm rounded-lg p-6 shadow-lg">
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* App Selector */}
+              <div className="text-left">
+                <label htmlFor="app-select" className="block text-white font-semibold mb-2">
+                  Select App to Feature
+                </label>
+                <select
+                  id="app-select"
+                  value={selectedApp}
+                  onChange={(e) => setSelectedApp(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-white text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Firefox">Firefox</option>
+                  <option value="Firefox Focus">Firefox Focus</option>
+                  <option value="Safari">Safari</option>
+                </select>
+              </div>
+
+              {/* Date Picker */}
+              <div className="text-left">
+                <label htmlFor="feature-date" className="block text-white font-semibold mb-2">
+                  Feature Date
+                </label>
+                <input
+                  type="date"
+                  id="feature-date"
+                  value={featureDate}
+                  onChange={(e) => setFeatureDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-4 py-3 rounded-lg bg-white text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Pricing Cards */}

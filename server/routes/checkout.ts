@@ -24,7 +24,7 @@ function getPolarClient(): Polar {
 // Create checkout session
 router.post('/create', async (req: Request, res: Response) => {
   try {
-    const { product_id, success_url, cancel_url, customer_email } = req.body;
+    const { product_id, success_url, cancel_url, customer_email, app_name, feature_date } = req.body;
 
     if (!product_id) {
       return res.status(400).json({ error: 'product_id is required' });
@@ -33,6 +33,12 @@ router.post('/create', async (req: Request, res: Response) => {
     console.log('🔄 Creating checkout for product:', product_id);
     if (customer_email) {
       console.log('👤 Customer email:', customer_email);
+    }
+    if (app_name) {
+      console.log('📱 App to feature:', app_name);
+    }
+    if (feature_date) {
+      console.log('📅 Feature date:', feature_date);
     }
 
     const polar = getPolarClient();
@@ -51,6 +57,14 @@ router.post('/create', async (req: Request, res: Response) => {
       console.log('🔗 Linking checkout to external customer ID:', customer_email);
     }
 
+    // Add metadata to store app name and feature date
+    if (app_name || feature_date) {
+      checkoutOptions.metadata = {
+        ...(app_name && { app_name }),
+        ...(feature_date && { feature_date }),
+      };
+    }
+
     const checkoutSession = await polar.checkouts.create(checkoutOptions);
 
     console.log('✅ Checkout created:', checkoutSession.id);
@@ -58,6 +72,7 @@ router.post('/create', async (req: Request, res: Response) => {
     res.json({
       url: checkoutSession.url,
       id: checkoutSession.id,
+      metadata: checkoutOptions.metadata, // Send back to confirm
     });
   } catch (error: any) {
     console.error('❌ Failed to create checkout:', error);
