@@ -12,6 +12,12 @@ export interface IPayment extends Document {
   eventType: string;
   appName?: string; // App to feature (Firefox, Firefox Focus, Safari)
   featureDate?: Date; // Date when app will be featured
+  // Discount tracking
+  discountCode?: string; // The discount code used (e.g., "SUMMER20")
+  discountId?: string; // Polar's discount ID
+  discountAmount?: number; // Amount discounted in cents
+  discountType?: 'fixed' | 'percentage'; // Type of discount
+  originalAmount?: number; // Price before discount
   metadata?: Record<string, any>;
   createdAt: Date;
   updatedAt: Date;
@@ -65,6 +71,25 @@ const PaymentSchema: Schema = new Schema(
     featureDate: {
       type: Date,
       index: true,
+    },
+    // Discount tracking fields
+    discountCode: {
+      type: String,
+      index: true, // For querying by discount code
+    },
+    discountId: {
+      type: String,
+      index: true, // Polar's discount ID
+    },
+    discountAmount: {
+      type: Number, // Amount saved in cents
+    },
+    discountType: {
+      type: String,
+      enum: ['fixed', 'percentage'],
+    },
+    originalAmount: {
+      type: Number, // Price before discount in cents
     },
     metadata: {
       type: Schema.Types.Mixed,

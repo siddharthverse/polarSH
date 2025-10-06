@@ -110,22 +110,45 @@ async function handleCheckoutCreated(data: any) {
     console.log('✅ User updated with Polar customer ID:', data.customerId);
   }
 
+  // Debug discount data - log ALL amount-related fields
+  console.log('💵 Amount breakdown:', {
+    amount: data.amount,
+    discountAmount: data.discountAmount,
+    netAmount: data.netAmount,
+    taxAmount: data.taxAmount,
+    totalAmount: data.totalAmount,
+    hasDiscount: !!data.discount,
+  });
+
+  if (data.discount) {
+    console.log('🔍 Discount object:', JSON.stringify(data.discount, null, 2));
+  }
+
   const payment = new Payment({
     checkoutId: data.id,
     customerId: data.customerId,
     customerEmail: data.customerEmail || userIdentifier,
     productId: data.productId,
     productName: data.product?.name,
-    amount: data.amount || 0,
+    amount: data.netAmount || data.amount || 0, // Use netAmount (after discount) as the final amount
     currency: data.currency || 'USD',
     status: 'pending',
     eventType: 'checkout.created',
     appName: data.metadata?.app_name, // Extract from checkout metadata
     featureDate: data.metadata?.feature_date ? new Date(data.metadata.feature_date) : undefined,
+    // Discount tracking
+    discountCode: data.discount?.code || undefined,
+    discountId: data.discountId || data.discount?.id || undefined,
+    discountAmount: data.discountAmount || 0, // Polar provides this as a calculated field
+    discountType: data.discount?.type || undefined,
+    originalAmount: data.amount, // Store original amount before discount
     metadata: {
       checkout_url: data.url,
       expires_at: data.expiresAt,
       external_customer_id: data.externalCustomerId,
+      discount_name: data.discount?.name, // Store discount name for reference
+      discount_full_data: data.discount, // Store full discount object for debugging
+      net_amount: data.netAmount, // Amount after discount but before tax
     },
   });
 
@@ -133,6 +156,10 @@ async function handleCheckoutCreated(data: any) {
 
   if (payment.appName && payment.featureDate) {
     console.log(`📱 Payment for ${payment.appName} to be featured on ${payment.featureDate.toISOString().split('T')[0]}`);
+  }
+
+  if (payment.discountCode && payment.discountAmount) {
+    console.log(`💰 Discount code "${payment.discountCode}" applied - saved $${(payment.discountAmount / 100).toFixed(2)}`);
   }
 
   // Link payment to user
@@ -147,16 +174,38 @@ async function handleCheckoutCreated(data: any) {
 async function handleCheckoutUpdated(data: any) {
   console.log('🔄 Checkout updated:', data.id);
 
+  // Debug discount data in update event
+  console.log('💵 Amount breakdown (updated):', {
+    amount: data.amount,
+    discountAmount: data.discountAmount,
+    netAmount: data.netAmount,
+    taxAmount: data.taxAmount,
+    totalAmount: data.totalAmount,
+    hasDiscount: !!data.discount,
+  });
+
   const payment = await Payment.findOne({ checkoutId: data.id });
 
   if (payment) {
     payment.status = data.status === 'confirmed' ? 'completed' : payment.status;
     payment.customerEmail = data.customerEmail || payment.customerEmail;
     payment.customerId = data.customerId || payment.customerId;
+
+    // Update discount fields if they changed (discount might be applied after creation)
+    if (data.discountAmount && data.discountAmount !== payment.discountAmount) {
+      payment.discountAmount = data.discountAmount;
+      payment.discountCode = data.discount?.code || payment.discountCode;
+      payment.discountId = data.discountId || data.discount?.id || payment.discountId;
+      payment.discountType = data.discount?.type || payment.discountType;
+      payment.amount = data.netAmount || data.amount || payment.amount; // Update to post-discount amount
+      console.log(`💰 Discount updated: ${data.discountAmount} cents`);
+    }
+
     payment.metadata = {
       ...payment.metadata,
       updated_at: new Date(),
       checkout_status: data.status,
+      net_amount: data.netAmount,
     };
 
     await payment.save();
