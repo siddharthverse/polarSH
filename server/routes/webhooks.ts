@@ -191,6 +191,8 @@ async function handleOrderCreated(data: any) {
     await payment.save();
   } else {
     payment.status = 'completed';
+    payment.eventType = 'order.created'; // Update to reflect successful order
+    payment.amount = data.totalAmount; // Update with actual amount
     payment.metadata = {
       ...payment.metadata,
       order_id: data.id,
@@ -324,6 +326,7 @@ async function handleOrderPaid(data: any) {
 
   if (payment) {
     payment.status = 'completed';
+    payment.eventType = 'order.paid'; // Update to reflect payment confirmation
     payment.metadata = {
       ...payment.metadata,
       paid_at: new Date(),

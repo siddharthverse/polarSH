@@ -23,8 +23,15 @@ export const createCheckoutSession = async (data: CheckoutSessionData) => {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to create checkout');
+      let errorMessage = 'Failed to create checkout';
+      try {
+        const error = await response.json();
+        errorMessage = error.message || error.error || errorMessage;
+      } catch {
+        // If JSON parsing fails, use status text
+        errorMessage = response.statusText || errorMessage;
+      }
+      throw new Error(errorMessage);
     }
 
     const result = await response.json();
@@ -33,6 +40,10 @@ export const createCheckoutSession = async (data: CheckoutSessionData) => {
     return result;
   } catch (error) {
     console.error('❌ Error creating checkout session:', error);
+    // Check if it's a network error
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Cannot connect to server. Please make sure the server is running.');
+    }
     throw error;
   }
 };
