@@ -62,3 +62,63 @@ export const getCheckoutSession = async (sessionId: string) => {
     throw error;
   }
 };
+
+export const getPaymentBySession = async (sessionId: string) => {
+  try {
+    const response = await fetch(`/api/payments/session/${sessionId}`);
+
+    if (!response.ok) {
+      throw new Error('Failed to get payment details');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting payment details:', error);
+    throw error;
+  }
+};
+
+export const getUserPayments = async (email: string) => {
+  try {
+    const response = await fetch(`/api/payments/user/${email}`);
+
+    if (!response.ok) {
+      throw new Error('Failed to get user payments');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting user payments:', error);
+    throw error;
+  }
+};
+
+export interface RefundRequest {
+  order_id: string;
+  reason: 'customer_request' | 'duplicate' | 'fraudulent' | 'service_disruption' | 'satisfaction_guarantee' | 'other';
+  amount: number;
+  comment?: string;
+  revoke_benefits?: boolean;
+}
+
+export const createRefund = async (data: RefundRequest) => {
+  try {
+    const response = await fetch('/api/refunds/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to create refund');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error creating refund:', error);
+    throw error;
+  }
+};

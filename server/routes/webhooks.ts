@@ -1,8 +1,23 @@
 import express, { Request, Response } from 'express';
+import { Polar } from '@polar-sh/sdk';
 import { verifyPolarWebhook } from '../utils/verifyWebhook';
+import { sendInvoiceEmail, sendRefundEmail } from '../utils/emailService';
 import Payment from '../models/Payment';
 import User from '../models/User';
 import Product from '../models/Product';
+
+// Initialize Polar client for invoice generation
+let polar: Polar | null = null;
+function getPolarClient(): Polar {
+  if (!polar) {
+    const isSandbox = process.env.POLAR_ENVIRONMENT === 'sandbox';
+    polar = new Polar({
+      accessToken: process.env.POLAR_ACCESS_TOKEN,
+      ...(isSandbox && { serverURL: 'https://sandbox-api.polar.sh' }),
+    });
+  }
+  return polar;
+}
 
 const router = express.Router();
 
@@ -71,6 +86,14 @@ router.post(
 
         case 'customer.state_changed':
           await handleCustomerStateChanged(event.data);
+          break;
+
+        case 'refund.created':
+          await handleRefundCreated(event.data);
+          break;
+
+        case 'order.updated':
+          await handleOrderUpdated(event.data);
           break;
 
         default:
@@ -244,7 +267,7 @@ async function handleOrderCreated(data: any) {
     payment.amount = data.totalAmount; // Update with actual amount
     payment.metadata = {
       ...payment.metadata,
-      order_id: data.id,
+      order_id: data.id, // Store order_id for refund lookup
       order_created_at: new Date(),
       external_customer_id: data.customer?.externalId,
     };
@@ -271,6 +294,20 @@ async function handleOrderCreated(data: any) {
   }
 
   console.log('✅ Order processed and payment completed');
+
+  // Automatically generate invoice after order creation
+  try {
+    console.log('📄 Triggering invoice generation for order:', data.id);
+    const polar = getPolarClient();
+    await polar.orders.generateInvoice({ id: data.id });
+    console.log('✅ Invoice generation scheduled');
+  } catch (err: any) {
+    if (err.statusCode === 409) {
+      console.log('ℹ️ Invoice already exists for order:', data.id);
+    } else {
+      console.error('❌ Failed to generate invoice:', err.message);
+    }
+  }
 }
 
 async function handleSubscriptionCreated(data: any) {
@@ -458,6 +495,94 @@ async function handleCustomerStateChanged(data: any) {
   }
 
   console.log('✅ Customer state change handled');
+}
+
+async function handleOrderUpdated(data: any) {
+  console.log('🔄 Order updated:', data.id);
+
+  // Check if invoice was just generated
+  if (data.isInvoiceGenerated) {
+    console.log('📄 Invoice is now available for order:', data.id);
+
+    // Fetch the invoice URL
+    try {
+      const polar = getPolarClient();
+      const invoice = await polar.orders.invoice({ id: data.id });
+
+      console.log('✅ Invoice URL retrieved:', invoice.url);
+
+      // Find payment to get customer details
+      const payment = await Payment.findOne({ 'metadata.order_id': data.id });
+
+      if (payment && payment.customerEmail) {
+        // Send invoice email to customer
+        await sendInvoiceEmail({
+          customerEmail: payment.customerEmail,
+          invoiceUrl: invoice.url,
+          orderId: data.id,
+          amount: payment.amount,
+          currency: payment.currency,
+          productName: payment.productName,
+        });
+      }
+    } catch (err) {
+      console.error('❌ Failed to fetch/send invoice:', err);
+    }
+  }
+
+  console.log('✅ Order update handled');
+}
+
+async function handleRefundCreated(data: any) {
+  console.log('💸 Refund created:', data.id);
+  console.log('📦 Refund data:', JSON.stringify(data, null, 2));
+
+  // Find the payment by order ID stored in metadata
+  const payment = await Payment.findOne({ 'metadata.order_id': data.orderId });
+
+  if (payment) {
+    // Update payment status to refunded
+    payment.status = 'refunded';
+    payment.metadata = {
+      ...payment.metadata,
+      refund_id: data.id,
+      refund_amount: data.amount,
+      refund_reason: data.reason,
+      refunded_at: new Date(),
+      refund_comment: data.comment,
+    };
+
+    await payment.save();
+    console.log('✅ Payment marked as refunded:', payment.checkoutId);
+
+    // Update user subscription if benefits were revoked
+    if (data.revokeBenefits) {
+      const user = await User.findOne({ email: payment.customerEmail });
+      if (user) {
+        user.subscriptionStatus = 'free';
+        user.subscriptionId = undefined;
+        user.subscriptionEndsAt = undefined;
+        await user.save();
+        console.log(`✅ User ${user.email} subscription revoked due to refund`);
+      }
+    }
+
+    // Send refund confirmation email
+    if (payment.customerEmail) {
+      await sendRefundEmail({
+        customerEmail: payment.customerEmail,
+        orderId: data.orderId,
+        refundAmount: data.amount,
+        currency: payment.currency,
+        refundReason: data.reason,
+        productName: payment.productName,
+      });
+    }
+  } else {
+    console.warn('⚠️ Payment not found for order:', data.orderId);
+  }
+
+  console.log('✅ Refund webhook processed');
 }
 
 export default router;

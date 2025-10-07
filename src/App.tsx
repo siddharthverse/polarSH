@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import PaymentPage from './components/PaymentPage';
 import ConfirmationPage from './components/ConfirmationPage';
+import PurchasesPage from './components/PurchasesPage';
 
 function App() {
   const handlePaymentInitiated = () => {
@@ -13,6 +14,7 @@ function App() {
       <Routes>
         <Route path="/" element={<PaymentPage onPaymentInitiated={handlePaymentInitiated} />} />
         <Route path="/confirmation" element={<ConfirmationPage />} />
+        <Route path="/purchases" element={<PurchasesPage />} />
       </Routes>
     </Router>
   );

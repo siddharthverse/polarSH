@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { createCheckoutSession } from "@/lib/polar";
 
@@ -35,7 +36,7 @@ const defaultPricingTiers: PricingTier[] = [
     ],
   },
   {
-    polarProductId: "pro_monthly",
+    polarProductId: "35a2afdc-3dbc-4d68-9e0c-36527c0b48bd",
     name: "Pro",
     description: "Best for growing teams",
     price: 9.99,
@@ -53,7 +54,7 @@ const defaultPricingTiers: PricingTier[] = [
     ],
   },
   {
-    polarProductId: "enterprise_monthly",
+    polarProductId: "2c999f50-cb0b-42c0-b19f-50d12db11e71",
     name: "Enterprise",
     description: "For large organizations",
     price: 29.99,
@@ -73,6 +74,7 @@ const defaultPricingTiers: PricingTier[] = [
 ];
 
 export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [pricingTiers, setPricingTiers] = useState<PricingTier[]>(defaultPricingTiers);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -161,6 +163,15 @@ export default function PaymentPage({ onPaymentInitiated }: PaymentPageProps) {
       <div className="container mx-auto px-4 py-16 relative z-10">
         {/* Header */}
         <div className="text-center mb-16 slide-in-left">
+          <div className="flex justify-end mb-4">
+            <Button
+              variant="outline"
+              onClick={() => navigate('/purchases')}
+              className="bg-white/20 backdrop-blur-sm text-white border-white/30 hover:bg-white/30"
+            >
+              View Purchases
+            </Button>
+          </div>
           <h1
             className="text-5xl md:text-6xl font-bold mb-6 text-white bounce-in"
             style={{ textShadow: "0 2px 8px rgba(0,0,0,0.3)" }}

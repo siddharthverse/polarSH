@@ -2,15 +2,24 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getCheckoutSession } from '@/lib/polar';
+import { getCheckoutSession, getPaymentBySession } from '@/lib/polar';
 
 type PaymentStatus = 'success' | 'failed' | 'loading';
+
+interface PaymentDetails {
+  appName?: string;
+  featureDate?: Date;
+  productName?: string;
+  amount?: number;
+  currency?: string;
+}
 
 export default function ConfirmationPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [status, setStatus] = useState<PaymentStatus>('loading');
   const [message, setMessage] = useState('');
+  const [paymentDetails, setPaymentDetails] = useState<PaymentDetails | null>(null);
 
   useEffect(() => {
     const validatePayment = async () => {
@@ -27,10 +36,24 @@ export default function ConfirmationPage() {
         try {
           // Validate the session with Polar SH
           const session = await getCheckoutSession(sessionId);
-          
+
           if (session.status === 'confirmed') {
             setStatus('success');
             setMessage('Your payment has been processed successfully!');
+
+            // Fetch payment details to get app name and feature date
+            try {
+              const payment = await getPaymentBySession(sessionId);
+              setPaymentDetails({
+                appName: payment.appName,
+                featureDate: payment.featureDate,
+                productName: payment.productName,
+                amount: payment.amount,
+                currency: payment.currency,
+              });
+            } catch (err) {
+              console.error('Failed to fetch payment details:', err);
+            }
           } else if (session.status === 'expired') {
             setStatus('failed');
             setMessage('Payment session expired. Please try again.');
@@ -114,13 +137,55 @@ export default function ConfirmationPage() {
         <CardContent className="space-y-4">
           {status === 'success' ? (
             <div className="space-y-4">
+              {paymentDetails && (
+                <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                  <h3 className="font-semibold text-sm">Purchase Details</h3>
+                  {paymentDetails.productName && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Plan:</span>{' '}
+                      <span className="font-medium">{paymentDetails.productName}</span>
+                    </div>
+                  )}
+                  {paymentDetails.appName && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">App to Feature:</span>{' '}
+                      <span className="font-medium">{paymentDetails.appName}</span>
+                    </div>
+                  )}
+                  {paymentDetails.featureDate && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Feature Date:</span>{' '}
+                      <span className="font-medium">
+                        {new Date(paymentDetails.featureDate).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  {paymentDetails.amount && (
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Amount:</span>{' '}
+                      <span className="font-medium">
+                        ${(paymentDetails.amount / 100).toFixed(2)} {paymentDetails.currency || 'USD'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="text-sm text-muted-foreground text-center">
                 <p>You now have access to all premium features.</p>
                 <p className="mt-2">A confirmation email has been sent to your inbox.</p>
               </div>
-              <Button onClick={handleReturnHome} className="w-full">
-                Continue to Dashboard
-              </Button>
+              <div className="flex flex-col space-y-2">
+                <Button onClick={handleReturnHome} className="w-full">
+                  Continue to Dashboard
+                </Button>
+                <Button onClick={() => navigate('/purchases')} variant="outline" className="w-full">
+                  View Purchase History
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="space-y-4">

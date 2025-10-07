@@ -10,6 +10,9 @@ import webhookRouter from './routes/webhooks';
 import productRouter from './routes/products';
 import userRouter from './routes/users';
 import checkoutRouter from './routes/checkout';
+import paymentRouter from './routes/payments';
+import refundRouter from './routes/refunds';
+import invoiceRouter from './routes/invoices';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -30,6 +33,9 @@ app.use(express.json());
 app.use('/api/products', productRouter);
 app.use('/api/users', userRouter);
 app.use('/api/checkout', checkoutRouter);
+app.use('/api/payments', paymentRouter);
+app.use('/api/refunds', refundRouter);
+app.use('/api/invoices', invoiceRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
