@@ -96,6 +96,10 @@ router.post(
           await handleOrderUpdated(event.data);
           break;
 
+        case 'order.refunded':
+          await handleOrderRefunded(event.data);
+          break;
+
         default:
           console.log(`ℹ️ Unhandled event type: ${event.type}`);
       }
@@ -533,6 +537,42 @@ async function handleOrderUpdated(data: any) {
   console.log('✅ Order update handled');
 }
 
+async function handleOrderRefunded(data: any) {
+  console.log('💸 Order refunded:', data.id);
+  console.log('📦 Refund data:', JSON.stringify(data, null, 2));
+
+  // Find the payment by order ID stored in metadata
+  const payment = await Payment.findOne({ 'metadata.order_id': data.id });
+
+  if (payment) {
+    // Update payment status and eventType to refunded
+    payment.status = 'refunded';
+    payment.eventType = 'order.refunded'; // Update to reflect refund
+    payment.metadata = {
+      ...payment.metadata,
+      refunded_at: new Date(),
+      order_refunded: true,
+    };
+
+    await payment.save();
+    console.log('✅ Payment marked as refunded (order.refunded):', payment.checkoutId);
+
+    // Update user subscription
+    const user = await User.findOne({ email: payment.customerEmail });
+    if (user) {
+      user.subscriptionStatus = 'free';
+      user.subscriptionId = undefined;
+      user.subscriptionEndsAt = undefined;
+      await user.save();
+      console.log(`✅ User ${user.email} subscription revoked due to order refund`);
+    }
+  } else {
+    console.warn('⚠️ Payment not found for order:', data.id);
+  }
+
+  console.log('✅ Order refund webhook processed');
+}
+
 async function handleRefundCreated(data: any) {
   console.log('💸 Refund created:', data.id);
   console.log('📦 Refund data:', JSON.stringify(data, null, 2));
@@ -541,8 +581,9 @@ async function handleRefundCreated(data: any) {
   const payment = await Payment.findOne({ 'metadata.order_id': data.orderId });
 
   if (payment) {
-    // Update payment status to refunded
+    // Update payment status and eventType to refunded
     payment.status = 'refunded';
+    payment.eventType = 'refund.created'; // Update to reflect refund
     payment.metadata = {
       ...payment.metadata,
       refund_id: data.id,
