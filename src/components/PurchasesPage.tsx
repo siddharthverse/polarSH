@@ -35,6 +35,7 @@ interface Payment {
     order_id?: string;
     refund_reason?: string;
     refunded_at?: Date;
+    refund_amount?: number;
   };
 }
 
@@ -44,6 +45,7 @@ export default function PurchasesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState('');
+  const [loadingInvoice, setLoadingInvoice] = useState<string | null>(null);
 
   // Refund dialog state
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
@@ -140,6 +142,33 @@ export default function PurchasesPage() {
       alert(`Failed to process refund: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setRefundProcessing(false);
+    }
+  };
+
+  const handleDownloadInvoice = async (payment: Payment) => {
+    if (!payment.metadata?.order_id) {
+      alert('No invoice available for this payment');
+      return;
+    }
+
+    setLoadingInvoice(payment._id);
+
+    try {
+      const response = await fetch(`/api/payments/${payment._id}/invoice`);
+
+      if (!response.ok) {
+        throw new Error('Failed to get invoice');
+      }
+
+      const data = await response.json();
+
+      // Open invoice URL in new tab
+      window.open(data.url, '_blank');
+    } catch (err) {
+      console.error('Invoice error:', err);
+      alert(`Failed to get invoice: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoadingInvoice(null);
     }
   };
 
@@ -285,7 +314,39 @@ export default function PurchasesPage() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center justify-end">
+                    <div className="flex flex-col items-end gap-2">
+                      {/* Invoice Button - Show for completed or refunded payments with order_id */}
+                      {(payment.status === 'completed' || payment.status === 'refunded') && payment.metadata?.order_id && (
+                        <div className="flex flex-col items-end gap-1">
+                          <Button
+                            variant="outline"
+                            onClick={() => handleDownloadInvoice(payment)}
+                            disabled={loadingInvoice === payment._id}
+                            className="w-full md:w-auto"
+                          >
+                            {loadingInvoice === payment._id ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                                Loading...
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Download Invoice
+                              </>
+                            )}
+                          </Button>
+                          {payment.status === 'refunded' && payment.metadata?.refund_amount && (
+                            <p className="text-xs text-red-600 italic">
+                              Refunded: ${(payment.metadata.refund_amount / 100).toFixed(2)}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Refund Button - Only for completed payments */}
                       {payment.status === 'completed' && payment.metadata?.order_id && (
                         <Button
                           variant="outline"
@@ -295,6 +356,8 @@ export default function PurchasesPage() {
                           Request Refund
                         </Button>
                       )}
+
+                      {/* Refund Info - Show for refunded payments */}
                       {payment.status === 'refunded' && payment.metadata?.refunded_at && (
                         <div className="text-sm text-muted-foreground text-right">
                           <p className="font-medium mb-1">Refunded</p>
